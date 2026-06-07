@@ -1,0 +1,682 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 style: DATABASE_URL обычно задается в prisma.config.ts.
+// Если используешь Prisma 6 или ниже, добавь:
+// url = env("DATABASE_URL")
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================
+// ENUMS
+// =====================================================
+
+
+enum OAuthProvider {
+  GOOGLE
+  GITHUB
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+}
+
+enum FollowSource {
+  FRIEND_REQUEST_IGNORING
+  FRIEND_REQUEST_CANCELLED
+}
+
+enum FileAssetType {
+  IMAGE
+  VIDEO
+  AUDIO
+  FILE
+  ARCHIVE
+}
+
+enum FileAssetStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum ReactionType {
+  LIKE
+  DISLIKE
+}
+
+enum ChatType {
+  DIRECT
+  GROUP
+}
+
+enum ChatMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+
+enum MessageType {
+  TEXT
+  MEDIA
+  TEXT_WITH_MEDIA
+}
+
+enum NotificationType {
+  POST_LIKE
+  POST_DISLIKE
+  POST_COMMENT
+  
+  COMMENT_LIKE
+  COMMENT_DISLIKE
+  COMMENT_REPLY
+
+  FRIEND_REQUEST
+  FRIEND_REQUEST_ACCEPTED
+  FRIEND_REQUEST_CANCELLED
+
+  MESSAGE
+  MESSAGE_REACTION
+  MESSAGE_REPLY
+
+  CHAT_INVITE
+  CHAT_REMOVED
+  CHAT_ROLE_CHANGED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+// =====================================================
+// AUTH / USERS / PROFILE
+// =====================================================
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  username     String     @unique
+  passwordHash String?
+
+  isEmailVerified Boolean @default(false)
+
+  emailVerificationTokenHash      String?
+  emailVerificationTokenExpiresAt DateTime?
+
+  passwordResetTokenHash      String?
+  passwordResetTokenExpiresAt DateTime?
+
+  lastLoginAt DateTime?
+
+  profile       UserProfile?
+  sessions      Session[]
+  oauthAccounts OAuthAccount[]
+
+  uploadedFiles FileAsset[] @relation("UploadedFiles")
+
+  sentFriendRequests     FriendRequest[] @relation("FriendRequestFrom")
+  receivedFriendRequests FriendRequest[] @relation("FriendRequestTo")
+
+  friendshipsAsA Friendship[] @relation("FriendshipUserA")
+  friendshipsAsB Friendship[] @relation("FriendshipUserB")
+
+  following Follow[] @relation("UserFollowing")
+  followers Follow[] @relation("UserFollowers")
+
+  posts                Post[]                @relation("UserPosts")
+  postComments         PostComment[]
+  postReactions        PostReaction[]
+  postCommentReactions PostCommentReaction[]
+
+  createdChats Chat[] @relation("CreatedChats")
+  chatMembers  ChatMember[]
+  chatInvitesSent     ChatInvite[] @relation("ChatInvitesSent")
+  chatInvitesReceived ChatInvite[] @relation("ChatInvitesReceived")
+
+  messages         Message[]
+  messageReads     MessageRead[]
+  messageReactions MessageReaction[]
+
+  notifications      Notification[] @relation("UserNotifications")
+  actorNotifications Notification[] @relation("ActorNotifications")
+  notificationPreferences NotificationPreference[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([email])
+  @@index([username])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model OAuthAccount {
+  id String @id @default(uuid())
+
+  provider          OAuthProvider
+  providerAccountId String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshTokenHash String
+
+  userAgent String?
+  ipAddress String?
+  country   String?
+  city      String?
+  device    String?
+  browser   String?
+  os        String?
+
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@index([lastSeenAt])
+}
+
+model UserProfile {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  avatarUrl String?
+
+  bio     String?
+  age     Int?
+  city    String?
+  country String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+// =====================================================
+// FILES / UPLOADS
+// =====================================================
+
+model FileAsset {
+  id String @id @default(uuid())
+
+  uploadedById String?
+  uploadedBy   User?   @relation("UploadedFiles", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  type   FileAssetType
+  status FileAssetStatus @default(PENDING)
+
+  url          String
+  thumbnailUrl String?
+
+  filename  String?
+  mimeType  String?
+  sizeBytes Int?
+
+  width    Int?
+  height   Int?
+  duration Int?
+
+  // Для BullMQ: можно хранить ошибку обработки файла.
+  processingError String?
+
+  postAttachments    PostAttachment[]
+  messageAttachments MessageAttachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([uploadedById])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// =====================================================
+// FRIENDS / FOLLOWS
+// =====================================================
+
+model Follow {
+  id String @id @default(uuid())
+
+  followerId String
+  follower   User   @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+
+  followingId String
+  following   User   @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  source FollowSource @default(FRIEND_REQUEST_IGNORING)
+
+  createdAt DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@index([source])
+}
+
+model FriendRequest {
+  id String @id @default(uuid())
+
+  fromUserId String
+  fromUser   User   @relation("FriendRequestFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+
+  toUserId String
+  toUser   User   @relation("FriendRequestTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  status FriendRequestStatus @default(PENDING)
+
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([fromUserId, toUserId])
+  @@index([fromUserId, status])
+  @@index([toUserId, status])
+  @@index([createdAt])
+}
+
+model Friendship {
+  id String @id @default(uuid())
+
+  // На backend сохраняй userAId/userBId в стабильном порядке,
+  // чтобы не было дублей A-B и B-A.
+  userAId String
+  userA   User   @relation("FriendshipUserA", fields: [userAId], references: [id], onDelete: Cascade)
+
+  userBId String
+  userB   User   @relation("FriendshipUserB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+// =====================================================
+// POSTS / FEED
+// =====================================================
+
+model Post {
+  id String @id @default(uuid())
+
+  authorId String
+  author   User   @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+
+  content    String?
+
+  attachments PostAttachment[]
+  comments    PostComment[]
+  reactions   PostReaction[]
+
+  likesCount    Int @default(0)
+  dislikesCount Int @default(0)
+  commentsCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([authorId])
+  @@index([createdAt])
+  @@index([likesCount])
+  @@index([commentsCount])
+  @@index([deletedAt])
+}
+
+model PostAttachment {
+  id String @id @default(uuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, fileId])
+  @@index([postId])
+  @@index([fileId])
+}
+
+model PostComment {
+  id String @id @default(uuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   PostComment?  @relation("PostCommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  PostComment[] @relation("PostCommentReplies")
+
+  content String
+
+  reactions PostCommentReaction[]
+
+  likesCount    Int @default(0)
+  dislikesCount Int @default(0)
+  repliesCount  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model PostReaction {
+  id String @id @default(uuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type ReactionType
+
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([userId])
+  @@index([postId, type])
+}
+
+model PostCommentReaction {
+  id String @id @default(uuid())
+
+  commentId String
+  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type ReactionType
+
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@index([commentId, type])
+}
+
+// =====================================================
+// CHATS / MESSAGES / WEBSOCKET CORE
+// =====================================================
+
+model Chat {
+  id String @id @default(uuid())
+
+  type ChatType
+
+  title     String?
+  avatarUrl String?
+
+  // Для DIRECT: строка из двух отсортированных userId, например "id1:id2".
+  // Для GROUP: null.
+  directKey String? @unique
+
+  createdById String?
+  createdBy   User?   @relation("CreatedChats", fields: [createdById], references: [id], onDelete: SetNull)
+
+  members ChatMember[]
+  invites ChatInvite[]
+  messages Message[]
+
+  lastMessageId String?
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  @@index([type])
+  @@index([createdById])
+  @@index([lastMessageAt])
+  @@index([updatedAt])
+}
+
+model ChatMember {
+  id String @id @default(uuid())
+
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role ChatMemberRole @default(MEMBER)
+
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+
+  // Для быстрого unread count.
+  lastReadAt DateTime?
+  lastReadMessageId String?
+
+
+  @@unique([chatId, userId])
+  @@index([chatId])
+  @@index([userId])
+  @@index([role])
+  @@index([leftAt])
+}
+
+model ChatInvite {
+  id String @id @default(uuid())
+
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  invitedById String
+  invitedBy   User   @relation("ChatInvitesSent", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  invitedUserId String
+  invitedUser   User   @relation("ChatInvitesReceived", fields: [invitedUserId], references: [id], onDelete: Cascade)
+
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([chatId, invitedUserId])
+  @@index([chatId])
+  @@index([invitedById])
+}
+
+model Message {
+  id String @id @default(uuid())
+
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  senderId String?
+  sender   User?   @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  type    MessageType @default(TEXT)
+  content String?
+
+  // Ответ на конкретное сообщение.
+  parentId String?
+  parent   Message?  @relation("MessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies  Message[] @relation("MessageReplies")
+
+  attachments MessageAttachment[]
+  reactions   MessageReaction[]
+  reads       MessageRead[]
+
+  editedAt  DateTime?
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@index([parentId])
+  @@index([deletedAt])
+}
+
+model MessageAttachment {
+  id String @id @default(uuid())
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, fileId])
+  @@index([messageId])
+  @@index([fileId])
+}
+
+
+model MessageReaction {
+  id String @id @default(uuid())
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  emoji String
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model MessageRead {
+  id String @id @default(uuid())
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  readAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
+}
+
+// =====================================================
+// NOTIFICATIONS / BULLMQ-FRIENDLY
+// =====================================================
+
+model Notification {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation("ActorNotifications", fields: [actorId], references: [id], onDelete: SetNull)
+
+  type NotificationType
+
+  title String
+  body  String?
+
+  // Полиморфная ссылка: entityType = "Post", entityId = post.id.
+  entityType String?
+  entityId   String?
+
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@index([actorId])
+  @@index([type])
+  @@index([entityType, entityId])
+}
+
+model NotificationPreference {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type NotificationType
+
+  inAppEnabled Boolean @default(true)
+  emailEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([type])
+}
+
+model EmailOutbox {
+  id String @id @default(uuid())
+
+  to      String
+  subject String
+  body    String
+
+  // Например: EMAIL_VERIFICATION, PASSWORD_RESET, FRIEND_REQUEST, SYSTEM.
+  type String
+
+  sentAt    DateTime?
+  failedAt  DateTime?
+  error     String?
+  attempts  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([sentAt])
+  @@index([failedAt])
+  @@index([createdAt])
+}
