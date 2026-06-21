@@ -1,3 +1,4 @@
+// HTTP-слой авторизации: принимает запросы login/register/refresh/logout и отдаёт наружу только безопасные данные пользователя.
 import {
   Body,
   Controller,
@@ -6,10 +7,18 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
+import { extname, join } from 'path'
+import { mkdirSync } from 'fs'
+import { randomUUID } from 'crypto'
+const multer = require('multer')
 import { ConfigService } from '@nestjs/config'
 import type { Request, Response } from 'express'
 import type { Env } from '../config/env.schema'
@@ -22,6 +31,7 @@ import type { CurrentUserPayload } from './types/current-user-payload.type'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { ForgotPasswordDto } from './dto/forgot-password.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
+import { ChangePasswordDto } from './dto/change-password.dto'
 
 
 
@@ -168,6 +178,57 @@ export class AuthController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.authService.updateMe(user.id, dto)
+  }
+
+  @UseGuards(AccessTokenGuard)
+  @Post('change-password')
+  changePassword(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.id, dto)
+  }
+
+  @UseGuards(AccessTokenGuard)
+  @Post('email-verification')
+  requestEmailVerification(@CurrentUser() user: CurrentUserPayload) {
+    return this.authService.requestEmailVerification(user.id)
+  }
+
+  @Post('verify-email')
+  verifyEmail(@Body('token') token: string) {
+    return this.authService.verifyEmail(token)
+  }
+
+  @UseGuards(AccessTokenGuard)
+  @Post('avatar-upload')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => {
+        const uploadDir = join(process.cwd(), 'uploads', 'profile')
+        mkdirSync(uploadDir, { recursive: true })
+        callback(null, uploadDir)
+      },
+      filename: (_req, file, callback) => {
+        const extension = extname(file.originalname || '')
+        callback(null, `${Date.now()}-${randomUUID()}${extension}`)
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, callback) => {
+      if (String(file.mimetype ?? '').startsWith('image/')) {
+        callback(null, true)
+        return
+      }
+
+      callback(new Error('Можно загрузить только изображение'), false)
+    },
+  }))
+  uploadAvatar(
+    @CurrentUser() user: CurrentUserPayload,
+    @UploadedFile() file: any,
+  ) {
+    return this.authService.prepareUploadedAvatar(user.id, file)
   }
 
   // получить все сессии

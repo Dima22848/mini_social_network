@@ -1,35 +1,85 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: social_network_postgres
+    container_name: social-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: social_network
     ports:
-      - '5433:5432'
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - social_network
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d social_network"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   redis:
     image: redis:7-alpine
-    container_name: social_network_redis
+    container_name: social-redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "12345"]
     ports:
-      - '6379:6379'
+      - "6379:6379"
     volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - social_network
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "12345", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    container_name: social-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      API_PREFIX: api
+      CLIENT_URL: http://localhost:3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/social_network?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: "12345"
+      REDIS_DB: 0
+      JWT_ACCESS_SECRET: access_secret_change_me
+      JWT_REFRESH_SECRET: refresh_secret_change_me
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN_DAYS: 1
+      JWT_REFRESH_EXPIRES_IN_DAYS_REMEMBER: 30
+      COOKIE_SECRET: cookie_secret_change_me
+      REFRESH_TOKEN_COOKIE_NAME: refreshToken
+      COOKIE_SECURE: "false"
+      COOKIE_SAME_SITE: lax
+      COOKIE_DOMAIN: ""
+      MAIL_FROM: no-reply@example.com
+      BCRYPT_SALT_ROUNDS: 10
+      SEED_ON_START: "true"
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: social-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api
+    ports:
+      - "3000:3000"
 
 volumes:
-  postgres_data:
-  redis_data:
-
-networks:
-  social_network:
-    driver: bridge
+  postgres-data:
+  redis-data:

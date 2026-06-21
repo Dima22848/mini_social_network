@@ -2,11 +2,11 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { authApi } from '../api/auth.api'
+import { useRegisterMutation } from '../api/auth.queries'
 import { useAuth } from '../providers/AuthProvider'
 
 const registerSchema = z
@@ -27,7 +27,8 @@ type RegisterFormData = z.infer<typeof registerSchema>
 
 export function RegisterForm() {
   const router = useRouter()
-  const { setAuth } = useAuth()
+  const { setAuth, isAuthenticated } = useAuth()
+  const registerMutation = useRegisterMutation()
   const [serverError, setServerError] = useState<string | null>(null)
 
   const {
@@ -46,7 +47,7 @@ export function RegisterForm() {
     setServerError(null)
 
     try {
-      const result = await authApi.register({
+      const result = await registerMutation.mutateAsync({
         email: data.email,
         username: data.username,
         password: data.password,
@@ -62,6 +63,12 @@ export function RegisterForm() {
       setServerError(error instanceof Error ? error.message : 'Ошибка регистрации')
     }
   }
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace('/profile')
+    }
+  }, [isAuthenticated, router])
 
   return (
     <div className="w-full max-w-[500px] rounded-3xl border border-zinc-100 bg-white px-10 py-10 shadow-[0_18px_60px_rgba(88,64,120,0.12)]">
@@ -153,10 +160,10 @@ export function RegisterForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || registerMutation.isPending}
           className="h-13 w-full rounded-xl bg-violet-600 text-base font-semibold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Создаём аккаунт...' : 'Зарегистрироваться'}
+          {isSubmitting || registerMutation.isPending ? 'Создаём аккаунт...' : 'Зарегистрироваться'}
         </button>
       </form>
 

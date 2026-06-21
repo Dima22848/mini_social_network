@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { authApi } from '@/features/auth/api/auth.api'
 import { useAuth } from '@/features/auth/providers/AuthProvider'
-import type { AuthSession } from '@/features/auth/types/auth.types'
+import {
+  useLogoutAllExceptCurrentMutation,
+  useLogoutAllMutation,
+  useLogoutSessionMutation,
+  useSessionsQuery,
+} from '@/features/auth/api/auth.queries'
 
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -18,68 +21,45 @@ function formatDate(date: string) {
 
 export function SessionsSettings() {
   const router = useRouter()
-  const { accessToken, clearAuth } = useAuth()
-  const [sessions, setSessions] = useState<AuthSession[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [serverError, setServerError] = useState<string | null>(null)
+  const { clearAuth } = useAuth()
+  const sessionsQuery = useSessionsQuery()
+  const logoutSessionMutation = useLogoutSessionMutation()
+  const logoutAllExceptCurrentMutation = useLogoutAllExceptCurrentMutation()
+  const logoutAllMutation = useLogoutAllMutation()
 
-  async function loadSessions() {
-    if (!accessToken) {
-      return
-    }
-
-    try {
-      setIsLoading(true)
-      const result = await authApi.getSessions(accessToken)
-      setSessions(result.sessions)
-    } catch (error) {
-      setServerError(
-        error instanceof Error ? error.message : 'Ошибка загрузки сессий',
-      )
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadSessions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken])
+  const serverError =
+    sessionsQuery.error instanceof Error
+      ? sessionsQuery.error.message
+      : logoutSessionMutation.error instanceof Error
+        ? logoutSessionMutation.error.message
+        : logoutAllExceptCurrentMutation.error instanceof Error
+          ? logoutAllExceptCurrentMutation.error.message
+          : logoutAllMutation.error instanceof Error
+            ? logoutAllMutation.error.message
+            : null
 
   async function handleLogoutSession(sessionId: string) {
-    if (!accessToken) {
-      return
-    }
-
-    await authApi.logoutSession(accessToken, sessionId)
-    await loadSessions()
+    await logoutSessionMutation.mutateAsync(sessionId)
   }
 
   async function handleLogoutAllExceptCurrent() {
-    if (!accessToken) {
-      return
-    }
-
-    await authApi.logoutAllExceptCurrent(accessToken)
-    await loadSessions()
+    await logoutAllExceptCurrentMutation.mutateAsync()
   }
 
   async function handleLogoutAll() {
-    if (!accessToken) {
-      return
-    }
-
     try {
-      await authApi.logoutAll(accessToken)
+      await logoutAllMutation.mutateAsync()
     } finally {
       clearAuth()
       router.replace('/login')
     }
   }
 
-  if (isLoading) {
+  if (sessionsQuery.isLoading) {
     return <p className="text-sm text-zinc-500">Загружаем сессии...</p>
   }
+
+  const sessions = sessionsQuery.data?.sessions ?? []
 
   return (
     <div className="space-y-5">
@@ -92,16 +72,18 @@ export function SessionsSettings() {
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
+          disabled={logoutAllExceptCurrentMutation.isPending}
           onClick={handleLogoutAllExceptCurrent}
-          className="rounded-xl border border-violet-200 px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+          className="rounded-xl border border-violet-200 px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-50 disabled:opacity-60"
         >
           Завершить все кроме текущей
         </button>
 
         <button
           type="button"
+          disabled={logoutAllMutation.isPending}
           onClick={handleLogoutAll}
-          className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+          className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
         >
           Завершить все
         </button>
@@ -144,8 +126,9 @@ export function SessionsSettings() {
               {!session.isCurrent && (
                 <button
                   type="button"
+                  disabled={logoutSessionMutation.isPending}
                   onClick={() => handleLogoutSession(session.id)}
-                  className="rounded-xl border border-red-100 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                  className="rounded-xl border border-red-100 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
                 >
                   Завершить
                 </button>

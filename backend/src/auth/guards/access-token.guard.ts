@@ -1,3 +1,4 @@
+// Guard для защищённых HTTP-роутов: проверяет JWT, затем дополнительно сверяет активность сессии в базе.
 import {
   CanActivate,
   ExecutionContext,

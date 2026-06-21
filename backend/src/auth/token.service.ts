@@ -1,3 +1,4 @@
+// Небольшая обёртка над jsonwebtoken, чтобы подпись и проверка access/refresh токенов лежали в одном месте.
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import * as jwt from 'jsonwebtoken'

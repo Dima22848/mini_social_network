@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { authApi } from '../api/auth.api'
+import { useForgotPasswordMutation } from '../api/auth.queries'
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -14,6 +14,7 @@ const forgotPasswordSchema = z.object({
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>
 
 export function ForgotPasswordForm() {
+  const forgotPasswordMutation = useForgotPasswordMutation()
   const [serverError, setServerError] = useState<string | null>(null)
   const [resetLink, setResetLink] = useState<string | null>(null)
   const [isSuccess, setIsSuccess] = useState(false)
@@ -31,7 +32,7 @@ export function ForgotPasswordForm() {
     setResetLink(null)
 
     try {
-      const result = await authApi.forgotPassword(data)
+      const result = await forgotPasswordMutation.mutateAsync(data)
 
       setIsSuccess(true)
       setResetLink(result.resetLink ?? null)
@@ -101,10 +102,10 @@ export function ForgotPasswordForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || forgotPasswordMutation.isPending}
           className="h-13 w-full rounded-xl bg-violet-600 text-base font-semibold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Отправляем...' : 'Отправить письмо'}
+          {isSubmitting || forgotPasswordMutation.isPending ? 'Отправляем...' : 'Отправить письмо'}
         </button>
       </form>
     </div>

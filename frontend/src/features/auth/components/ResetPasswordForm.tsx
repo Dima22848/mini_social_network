@@ -6,7 +6,8 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { authApi } from '../api/auth.api'
+import { useResetPasswordMutation } from '../api/auth.queries'
+import { useAuth } from '../providers/AuthProvider'
 
 const resetPasswordSchema = z
   .object({
@@ -23,6 +24,8 @@ type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>
 export function ResetPasswordForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const resetPasswordMutation = useResetPasswordMutation()
+  const { user } = useAuth()
   const [serverError, setServerError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
@@ -45,7 +48,7 @@ export function ResetPasswordForm() {
     setServerError(null)
 
     try {
-      await authApi.resetPassword({
+      await resetPasswordMutation.mutateAsync({
         token,
         password: data.password,
       })
@@ -53,7 +56,7 @@ export function ResetPasswordForm() {
       setSuccess(true)
 
       setTimeout(() => {
-        router.push('/login')
+        router.push(user ? '/settings?tab=security' : '/login')
       }, 1200)
     } catch (error) {
       setServerError(error instanceof Error ? error.message : 'Ошибка восстановления пароля')
@@ -63,10 +66,10 @@ export function ResetPasswordForm() {
   return (
     <div className="w-full max-w-[520px] rounded-3xl border border-zinc-100 bg-white px-10 py-10 shadow-[0_18px_60px_rgba(88,64,120,0.12)]">
       <Link
-        href="/login"
+        href={user ? "/settings?tab=security" : "/login"}
         className="mb-8 inline-flex items-center text-sm font-semibold text-violet-600 hover:text-violet-700"
       >
-        ← Вернуться ко входу
+        {user ? '← Вернуться в настройки' : '← Вернуться ко входу'}
       </Link>
 
       <div className="mb-8 text-center">
@@ -86,7 +89,7 @@ export function ResetPasswordForm() {
 
       {success && (
         <div className="mb-5 rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm text-green-700">
-          Пароль обновлён. Сейчас перенаправим вас на вход.
+          Пароль обновлён. Сейчас перенаправим вас дальше.
         </div>
       )}
 
@@ -125,10 +128,10 @@ export function ResetPasswordForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting || !token}
+          disabled={isSubmitting || resetPasswordMutation.isPending || !token}
           className="h-13 w-full rounded-xl bg-violet-600 text-base font-semibold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Сохраняем...' : 'Сохранить пароль'}
+          {isSubmitting || resetPasswordMutation.isPending ? 'Сохраняем...' : 'Сохранить пароль'}
         </button>
       </form>
     </div>

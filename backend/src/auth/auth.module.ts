@@ -5,7 +5,10 @@ import { PasswordService } from './password.service'
 import { TokenService } from './token.service'
 import { AccessTokenGuard } from './guards/access-token.guard'
 
+import { MediaQueueModule } from '../common/files/media-queue.module'
+
 @Module({
+  imports: [MediaQueueModule],
   controllers: [AuthController],
   providers: [
     AuthService, 

@@ -2,11 +2,11 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { authApi } from '../api/auth.api'
+import { useLoginMutation } from '../api/auth.queries'
 import { useAuth } from '../providers/AuthProvider'
 
 const loginSchema = z.object({
@@ -19,7 +19,8 @@ type LoginFormData = z.infer<typeof loginSchema>
 
 export function LoginForm() {
   const router = useRouter()
-  const { setAuth } = useAuth()
+  const { setAuth, isAuthenticated } = useAuth()
+  const loginMutation = useLoginMutation()
   const [serverError, setServerError] = useState<string | null>(null)
 
   const {
@@ -37,7 +38,7 @@ export function LoginForm() {
     setServerError(null)
 
     try {
-      const result = await authApi.login(data)
+      const result = await loginMutation.mutateAsync(data)
 
       setAuth({
         user: result.user,
@@ -49,6 +50,13 @@ export function LoginForm() {
       setServerError(error instanceof Error ? error.message : 'Ошибка входа')
     }
   }
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace('/profile')
+    }
+  }, [isAuthenticated, router])
+
 
   return (
     <div className="w-full max-w-[500px] rounded-3xl border border-zinc-100 bg-white px-10 py-11 shadow-[0_18px_60px_rgba(88,64,120,0.12)]">
@@ -111,10 +119,10 @@ export function LoginForm() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || loginMutation.isPending}
           className="h-13 w-full rounded-xl bg-violet-600 text-base font-semibold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Входим...' : 'Войти'}
+          {isSubmitting || loginMutation.isPending ? 'Входим...' : 'Войти'}
         </button>
       </form>
 

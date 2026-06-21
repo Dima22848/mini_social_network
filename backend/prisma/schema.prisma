@@ -2,9 +2,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Prisma 7 style: DATABASE_URL обычно задается в prisma.config.ts.
-// Если используешь Prisma 6 или ниже, добавь:
-// url = env("DATABASE_URL")
 datasource db {
   provider = "postgresql"
 }
@@ -488,16 +485,26 @@ model ChatMember {
   joinedAt DateTime @default(now())
   leftAt   DateTime?
 
+  // Снимок названия/аватара на момент удаления пользователя из группы.
+  // Нужен, чтобы у удалённого пользователя история не менялась после новых правок группы.
+  leftChatTitle     String?
+  leftChatAvatarUrl String?
+
+  // Если пользователь сам удалил чат из своей истории.
+  deletedForUserAt DateTime?
+
   // Для быстрого unread count.
   lastReadAt DateTime?
   lastReadMessageId String?
 
+  notificationsEnabled Boolean @default(true)
 
   @@unique([chatId, userId])
   @@index([chatId])
   @@index([userId])
   @@index([role])
   @@index([leftAt])
+  @@index([deletedForUserAt])
 }
 
 model ChatInvite {
@@ -545,12 +552,16 @@ model Message {
   editedAt  DateTime?
   deletedAt DateTime?
 
+  pinnedAt DateTime?
+  pinnedById String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([chatId, createdAt])
   @@index([senderId])
   @@index([parentId])
+  @@index([pinnedAt])
   @@index([deletedAt])
 }
 
@@ -584,7 +595,7 @@ model MessageReaction {
 
   createdAt DateTime @default(now())
 
-  @@unique([messageId, userId, emoji])
+  @@unique([messageId, userId])
   @@index([messageId])
   @@index([userId])
 }

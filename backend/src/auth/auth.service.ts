@@ -1,3 +1,4 @@
+// Бизнес-логика авторизации: пользователи, сессии, refresh/access токены, смена пароля и обновление профиля.
 import {
   BadRequestException,
   ConflictException,
@@ -7,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { Request } from 'express'
 import { PrismaService } from '../prisma/prisma.service'
+import { deleteUploadedFileByUrl } from '../common/files/file-cleanup.util'
+import { MediaQueueService } from '../common/files/media-queue.service'
 import type { Env } from '../config/env.schema'
 import { RegisterDto } from './dto/register.dto'
 import { LoginDto } from './dto/login.dto'
@@ -18,6 +21,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto'
 import { createHash, randomBytes } from 'crypto'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
+import { ChangePasswordDto } from './dto/change-password.dto'
 
 @Injectable()
 export class AuthService {
@@ -26,6 +30,7 @@ export class AuthService {
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
     private readonly configService: ConfigService<Env, true>,
+    private readonly mediaQueueService: MediaQueueService,
   ) { }
 
   // Регистрация
@@ -120,6 +125,15 @@ export class AuthService {
 
     const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`
 
+    await this.prisma.emailOutbox.create({
+      data: {
+        to: user.email,
+        subject: 'Восстановление пароля',
+        body: `Перейдите по ссылке для восстановления пароля: ${resetLink}`,
+        type: 'PASSWORD_RESET',
+      },
+    })
+
     return {
       success: true,
       message: 'If this email exists, password reset instructions were sent',
@@ -146,28 +160,14 @@ export class AuthService {
 
     const passwordHash = await this.passwordService.hash(dto.password)
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: {
-          id: user.id,
-        },
-        data: {
-          passwordHash,
-          passwordResetTokenHash: null,
-          passwordResetTokenExpiresAt: null,
-        },
-      }),
-
-      this.prisma.session.updateMany({
-        where: {
-          userId: user.id,
-          revokedAt: null,
-        },
-        data: {
-          revokedAt: new Date(),
-        },
-      }),
-    ])
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        passwordResetTokenHash: null,
+        passwordResetTokenExpiresAt: null,
+      },
+    })
 
     return {
       success: true,
@@ -363,6 +363,7 @@ export class AuthService {
       throw new UnauthorizedException()
     }
 
+
     return {
       user: this.toPublicUserWithProfile(user),
     }
@@ -385,16 +386,45 @@ export class AuthService {
       }
     }
 
+    if (dto.email) {
+      const existingEmail = await this.prisma.user.findFirst({
+        where: {
+          email: dto.email,
+          id: { not: userId },
+        },
+      })
+
+      if (existingEmail) {
+        throw new ConflictException('Email already exists')
+      }
+    }
+
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, profile: { select: { avatarUrl: true } } },
+    })
+
+    const emailChanged = Boolean(dto.email && currentUser?.email !== dto.email)
+
     const profileData = {
       bio: dto.bio,
       age: dto.age,
       city: dto.city,
       country: dto.country,
+      avatarUrl: dto.avatarUrl,
     }
 
     const hasProfileData = Object.values(profileData).some(
       (value) => value !== undefined,
     )
+
+    if (
+      dto.avatarUrl !== undefined &&
+      currentUser?.profile?.avatarUrl &&
+      currentUser.profile.avatarUrl !== dto.avatarUrl
+    ) {
+      deleteUploadedFileByUrl(currentUser.profile.avatarUrl)
+    }
 
     const user = await this.prisma.user.update({
       where: {
@@ -402,6 +432,8 @@ export class AuthService {
       },
       data: {
         username: dto.username,
+        email: dto.email,
+        ...(emailChanged ? { isEmailVerified: false } : {}),
         ...(hasProfileData
           ? {
             profile: {
@@ -420,6 +452,118 @@ export class AuthService {
 
     return {
       user: this.toPublicUserWithProfile(user),
+    }
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    })
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials')
+    }
+
+    const isPasswordValid = await this.passwordService.compare(dto.oldPassword, user.passwordHash)
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Старый пароль указан неверно')
+    }
+
+    const passwordHash = await this.passwordService.hash(dto.newPassword)
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        passwordResetTokenHash: null,
+        passwordResetTokenExpiresAt: null,
+      },
+    })
+
+    return { success: true }
+  }
+
+  async requestEmailVerification(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+
+    if (!user) {
+      throw new UnauthorizedException()
+    }
+
+    if (user.isEmailVerified) {
+      return { success: true, message: 'Email уже подтверждён' }
+    }
+
+    const token = randomBytes(32).toString('hex')
+    const tokenHash = this.hashResetToken(token)
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const frontendUrl = this.configService.get('CLIENT_URL', { infer: true })
+    const verifyLink = `${frontendUrl}/verify-email?token=${token}`
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          emailVerificationTokenHash: tokenHash,
+          emailVerificationTokenExpiresAt: expiresAt,
+        },
+      }),
+      this.prisma.emailOutbox.create({
+        data: {
+          to: user.email,
+          subject: 'Подтверждение email',
+          body: `Перейдите по ссылке для подтверждения email: ${verifyLink}`,
+          type: 'EMAIL_VERIFICATION',
+        },
+      }),
+    ])
+
+    return { success: true, message: 'Письмо подтверждения отправлено', verifyLink }
+  }
+
+  async verifyEmail(token: string) {
+    const tokenHash = this.hashResetToken(token)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        emailVerificationTokenHash: tokenHash,
+        emailVerificationTokenExpiresAt: { gt: new Date() },
+      },
+      include: { profile: true },
+    })
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired verification token')
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        emailVerificationTokenHash: null,
+        emailVerificationTokenExpiresAt: null,
+      },
+      include: { profile: true },
+    })
+
+    return { success: true, user: this.toPublicUserWithProfile(updated) }
+  }
+
+  prepareUploadedAvatar(_userId: string, file: any) {
+    if (!file) {
+      throw new BadRequestException('Файл не загружен')
+    }
+
+    const url = `/uploads/profile/${file.filename}`
+    void this.mediaQueueService.enqueueUploadedFile({ url, kind: 'profile-avatar' })
+
+    return {
+      type: 'IMAGE',
+      url,
+      filename: file.originalname ?? file.filename,
+      mimeType: file.mimetype ?? 'image/*',
+      sizeBytes: file.size ?? null,
     }
   }
 

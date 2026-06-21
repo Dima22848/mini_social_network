@@ -1,4 +1,5 @@
 import {
+  IsEmail,
   IsInt,
   IsOptional,
   IsString,
@@ -14,6 +15,15 @@ export class UpdateProfileDto {
   @MinLength(3)
   @MaxLength(30)
   username?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  avatarUrl?: string | null
 
   @IsOptional()
   @IsString()

@@ -1,7 +1,8 @@
 'use client'
 
-import { ReactNode, useEffect, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+// Обёртка защищённых страниц: пока проверяем auth — показываем loader, если сессии нет — уводим на login.
+import { ReactNode, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '../providers/AuthProvider'
 
 type ProtectedRouteProps = {
@@ -10,51 +11,15 @@ type ProtectedRouteProps = {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const router = useRouter()
-  const pathname = usePathname()
-
-  const { isLoading, isAuthenticated, validateAuth } = useAuth()
-  const [isCheckingRouteAccess, setIsCheckingRouteAccess] = useState(true)
+  const { isLoading, isAuthenticated } = useAuth()
 
   useEffect(() => {
-    let ignore = false
-
-    async function checkRouteAccess() {
-      if (isLoading) {
-        return
-      }
-
-      setIsCheckingRouteAccess(true)
-
-      if (!isAuthenticated) {
-        if (!ignore) {
-          setIsCheckingRouteAccess(false)
-          router.replace('/login')
-        }
-
-        return
-      }
-
-      const isValid = await validateAuth()
-
-      if (ignore) {
-        return
-      }
-
-      setIsCheckingRouteAccess(false)
-
-      if (!isValid) {
-        router.replace('/login')
-      }
+    if (!isLoading && !isAuthenticated) {
+      router.replace('/login')
     }
+  }, [isLoading, isAuthenticated, router])
 
-    checkRouteAccess()
-
-    return () => {
-      ignore = true
-    }
-  }, [pathname, isLoading, isAuthenticated, validateAuth, router])
-
-  if (isLoading || isCheckingRouteAccess) {
+  if (isLoading) {
     return (
       <main className="min-h-screen bg-[#fbf9ff]">
         <div className="flex min-h-screen items-center justify-center text-sm text-zinc-500">

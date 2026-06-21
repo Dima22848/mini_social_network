@@ -1,10 +1,8 @@
 import {
   CalendarDays,
-  CheckCircle2,
   CircleUserRound,
   Mail,
   MapPin,
-  ShieldCheck,
 } from 'lucide-react'
 import type { AuthUser } from '@/features/auth/types/auth.types'
 
@@ -27,19 +25,9 @@ export function ProfileInfoCard({ user }: ProfileInfoCardProps) {
 
   const items = [
     {
-      label: 'Никнейм',
-      value: user.username,
-      icon: CircleUserRound,
-    },
-    {
       label: 'E-mail',
       value: user.email,
       icon: Mail,
-    },
-    {
-      label: 'Статус e-mail',
-      value: user.isEmailVerified ? 'Подтверждён' : 'Не подтверждён',
-      icon: user.isEmailVerified ? CheckCircle2 : ShieldCheck,
     },
     {
       label: 'Дата регистрации',

@@ -1,27 +1,28 @@
-import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
-import './globals.css'
-import { AuthProvider } from '@/features/auth/providers/AuthProvider'
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { AuthProvider } from "@/features/auth/providers/AuthProvider";
+import { AppQueryProvider } from "@/shared/providers/AppQueryProvider";
 
 const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
 
 const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-})
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
 
 export const metadata: Metadata = {
-  title: 'Social',
-  description: 'Social auth app',
-}
+  title: "Social",
+  description: "Social auth app",
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
     <html
@@ -29,8 +30,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <AuthProvider>{children}</AuthProvider>
+        <AppQueryProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </AppQueryProvider>
       </body>
     </html>
-  )
+  );
 }

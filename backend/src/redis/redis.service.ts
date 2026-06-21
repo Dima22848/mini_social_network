@@ -1,3 +1,4 @@
+// Единый Redis-клиент для backend. Через него работают presence и другие быстрые временные данные.
 import {
   Injectable,
   Logger,
