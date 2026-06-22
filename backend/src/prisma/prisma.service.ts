@@ -18,10 +18,6 @@ export class PrismaService
 
     super({
       adapter,
-      log:
-        configService.get('NODE_ENV', { infer: true }) === 'development'
-          ? ['query', 'info', 'warn', 'error']
-          : ['warn', 'error'],
     })
   }
 
